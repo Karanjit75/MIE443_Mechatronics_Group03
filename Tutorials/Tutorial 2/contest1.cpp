@@ -19,7 +19,6 @@ using namespace std::chrono_literals;
 inline double rad2deg(double rad) { return rad * 180.0 / M_PI; }
 inline double deg2rad(double deg) { return deg * M_PI / 180.0; }
 
-// bumpers
 class Contest1Node : public rclcpp::Node
 {
 public:
@@ -36,7 +35,6 @@ public:
         hazard_sub_ = this->create_subscription<irobot_create_msgs::msg::HazardDetectionVector>(
             "/hazard_detection", rclcpp::SensorDataQoS(),
             std::bind(&Contest1Node::hazardCallback, this, std::placeholders::_1));
-            
 
         odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/odom", rclcpp::SensorDataQoS(),
@@ -52,8 +50,9 @@ public:
         linear_ = 0.0;
         pos_x_ = 0.0;
         pos_y_ = 0.0;
-        yaw_ 0.0;
-        minLaserDist = std::numeric_limits<float>::infinity();
+        yaw_ = 0.0;
+        startup = false;
+        minLaserDist_ = std::numeric_limits<float>::infinity();
         nLasers_ = 0;
         desiredNLasers_ = 0;
         desiredAngle_ = 5;
@@ -64,17 +63,35 @@ public:
         bumpers_["bump_front_right"] = false;
         bumpers_["bump_left"] = false;
         bumpers_["bump_right"] = false;
+
         RCLCPP_INFO(this->get_logger(), "Contest 1 node initialized. Running for 480 seconds.");
     }
 
 private:
     void laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
-        // implement your code here
-        nLasers_ = (scan->angle_max - scan ->angle_min) / scan ->angle_increment;
+        nLasers_ = (scan->angle_max - scan->angle_min) / scan->angle_increment;
         laserRange_ = scan->ranges;
-        desiredNLasers = deg2rad(desiredAngle_) / scan->angle_increment;
+        desiredNLasers_ = deg2rad(desiredAngle_) / scan->angle_increment;
         RCLCPP_INFO(this->get_logger(), "Size of laser scan array: %d, and size of offset: %d", nLasers_, desiredNLasers_);
+
+        // LiDAR has 90-degree offset, so front of robot is at -90 degrees in scan frame
+        float laser_offset = deg2rad(-90);
+        uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;
+
+        minLaserDist_ = std::numeric_limits<float>::infinity();
+
+        // Find minimum laser distance within +/- desiredAngle from front center
+        if (deg2rad(desiredAngle_) < scan->angle_max && deg2rad(desiredAngle_) > scan->angle_min) {
+            for (uint32_t laser_idx = front_idx - desiredNLasers_; laser_idx < front_idx + desiredNLasers_; ++laser_idx) {
+                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
+            }
+        } 
+        else {
+            for (uint32_t laser_idx = 0; laser_idx < nLasers_; ++laser_idx) {
+                minLaserDist_ = std::min(minLaserDist_, laserRange_[laser_idx]);
+            }
+        }
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
@@ -87,14 +104,14 @@ private:
         // Extract yaw from quaternion using tf2
         yaw_ = tf2::getYaw(odom->pose.pose.orientation);
 
-        RCLCPP_INFO(this->get_logger(), "Position: (%.2f, %.2f), Orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
+        // RCLCPP_INFO(this->get_logger(), "Position: (%.2f, %.2f), Orientation: %f rad or %f deg", pos_x_, pos_y_, yaw_, rad2deg(yaw_));
     }
 
     void hazardCallback(const irobot_create_msgs::msg::HazardDetectionVector::SharedPtr hazard_vector)
     {
         // implement your code here
         // Reset all bumpers to released state
-        for (auto& [key, val] : bumpers_) {
+        for (auto& [key,val] : bumpers_) {
             val = false;
         }
 
@@ -104,14 +121,13 @@ private:
             // Type 1 corresponds to BUMP
             if (detection.type == irobot_create_msgs::msg::HazardDetection::BUMP) {
                 bumpers_[detection.header.frame_id] = true;
-                RCLCPP_INFO(this->get_logger(), "Bumper pressed: %s",
+                RCLCPP_INFO(this->get_logger(), "Bumper pressed: %s", 
                             detection.header.frame_id.c_str());
             }
         }
-
     }
 
-    /*void controlLoop()
+    void controlLoop()
     {
         // Calculate elapsed time
         auto current_time = this->now();
@@ -134,108 +150,64 @@ private:
         }
 
         // Implement your exploration code here
+        RCLCPP_INFO(this->get_logger(), "Position: (%.2f, %.2f), Orientation: %f rad or %f deg, Minimum laser distance: %.2f", \
+                                        pos_x_, pos_y_, yaw_, rad2deg(yaw_), minLaserDist_);
+        
+        
+
         bool any_bumper_pressed = false;
-        for (const auto& [key, val] : bumpers_) {
-            if (val) { 
+        for (const auto& [key,val] : bumpers_) {
+            if (val) {
                 any_bumper_pressed = true;
                 break;
             }
         }
-        
-        if (pos_x_ > -0.5 && yaw_ < M_PI / 2 && !any_bumper_pressed) {
-            angular_ = 0.0;
-            linear_ = -0.2;
+
+        if (startup == false) {
+            for (int i = 0; i < 10; i++) {
+                linear_ = -0.2;
+            }
+            for (int i = 0; i < 3; i++) {
+                angular_ = M_PI / 6;
+            }
+            startup = true;
         }
-        else if (yaw_ < M_PI / 2 && pos_x_ > -0.5 && !any_bumper_pressed) {
+
+        if (pos_x_ < 0.5 && yaw_ < M_PI / 12 && !any_bumper_pressed && minLaserDist_ > 0.7) {
+            angular_ = 0.0;
+            linear_ = 0.2;
+        }
+        else if (yaw_ < M_PI / 2 && pos_x_ > 0.5 && !any_bumper_pressed && minLaserDist_ > 0.5) 
+        {
             angular_ = M_PI / 6;
             linear_ = 0.0;
+        }
+        else if (minLaserDist_ < 1.0 && !any_bumper_pressed) {
+            linear_ = 0.1;
+            if (yaw_ < 17.0/36*M_PI || pos_x_ > 0.6) {
+                angular_ = M_PI / 12;
+            }
+            else if (yaw_ < 19.0/36*M_PI || pos_x_ < 0.4) {
+                angular_ = -M_PI / 12;
+            }
+            else {
+                angular_ = 0.0;
+            }
         }
         else {
             angular_ = 0.0;
             linear_ = 0.0;
-            rclcpp::shutdown();
-            return;
-        } 
-    }*/
-
-    /*
-   void controlLoop()
-{
-    // Calculate elapsed time
-        auto current_time = this->now();
-        double seconds_elapsed = (current_time - start_time_).seconds();
-
-        // Check if 480 seconds (8 minutes) have elapsed
-        if (seconds_elapsed >= 480.0) {
-            RCLCPP_INFO(this->get_logger(), "Contest time completed (480 seconds). Stopping robot.");
-
-            // Stop the robot
-            geometry_msgs::msg::TwistStamped vel;
-            vel.header.stamp = this->now();
-            vel.twist.linear.x = 0.0;
-            vel.twist.angular.z = 0.0;
-            vel_pub_->publish(vel);
-
-            // Shutdown the node
-            rclcpp::shutdown();
-            return;
         }
-        
-    // Stop if any bumper is pressed
-    for (const auto& [key, val] : bumpers_) {
-        if (val) {
-            linear_ = 0.0;
-            angular_ = 0.0;
-            break;
-        }
+
+        // Set velocity command
+        geometry_msgs::msg::TwistStamped vel;
+        vel.header.stamp = this->now();
+        vel.twist.linear.x = linear_;
+        vel.twist.angular.z = angular_;
+
+        // Publish velocity command
+        vel_pub_->publish(vel);
     }
-
-    static bool moving_forward = true;
-    static double start_x = pos_x_;
-    static double start_y = pos_y_;
-    static double start_yaw = yaw_;
-
-    double distance_travelled = std::sqrt(
-        std::pow(pos_x_ - start_x, 2) +
-        std::pow(pos_y_ - start_y, 2)
-    );
-
-    // Move forward 0.5 m
-    if (moving_forward && distance_travelled < 0.5) {
-        linear_ = 0.2;
-        angular_ = 0.0;
-    }
-    // Start turning
-    else if (moving_forward) {
-        moving_forward = false;
-        start_yaw = yaw_;
-        linear_ = 0.0;
-        angular_ = M_PI / 6.0;
-    }
-    // Turn 90 degrees
-    else {
-        double yaw_diff = std::fabs(yaw_ - start_yaw);
-
-        if (yaw_diff < M_PI / 2.0) {
-            linear_ = 0.0;
-            angular_ = M_PI / 6.0;
-        } else {
-            // Reset for next cycle
-            moving_forward = true;
-            start_x = pos_x_;
-            start_y = pos_y_;
-            linear_ = 0.0;
-            angular_ = 0.0;
-        }
-    } */
-
-    // ✅ Publish velocity command
-    geometry_msgs::msg::TwistStamped vel;
-    vel.header.stamp = this->now();
-    vel.twist.linear.x = linear_;
-    vel.twist.angular.z = angular_;
-    vel_pub_->publish(vel);
-}
 
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
@@ -249,6 +221,7 @@ private:
     double pos_x_;
     double pos_y_;
     double yaw_;
+    bool startup;
     std::map<std::string, bool> bumpers_;
     float minLaserDist_;
     int32_t nLasers_;
