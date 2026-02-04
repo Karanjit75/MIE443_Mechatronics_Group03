@@ -312,8 +312,8 @@ private:
             // If robot is commanded to go forward but is not moving (based on odom callback)
             // This forces recovery to escape trapped/enclosed areas or C-shaped/L-shaped obstacles
             const double check_period = 2.0; // time (in sec) between odom checks
-            const double min_progress = 0.05; // 5cm
-            const double want_forward = 0.05; // threshold for 'we intended to move forward'
+            const double min_progress = 0.06; // 6cm
+            const double want_forward = 0.08; // threshold for 'we intended to move forward'
 
             if (init_progress_) {
                 double stuck_check_time = (now - last_check_time).seconds();
@@ -327,7 +327,7 @@ private:
                     last_check_y_ = pos_y_;
 
                     bool near_obstacle = (minLaserDist_ < Slow_Dist);
-                    if (!recovering && last_linear_ > want_forward && moved_dist < min_progress && near_obstacle) {
+                    if (!recovering && !turn_lock && last_linear_ > want_forward && moved_dist < min_progress && near_obstacle) {
                         RCLCPP_WARN(this->get_logger(), "Stuck detected: moved %.3f m in %.1f sec. Forcing recovery state.", moved_dist, check_period);
                         force_recovery = true;
                     }
@@ -447,6 +447,8 @@ private:
 
         // Publish velocity command
         vel_pub_->publish(vel);
+
+        last_linear_ = linear_;
     }
 
     // ROS Publisher, Subscribers, Timers
