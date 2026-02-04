@@ -261,6 +261,7 @@ private:
             vel.twist.angular.z = angular_;
             // Publish velocity command
             vel_pub_->publish(vel);
+            last_linear_ = 0.0;
             return;
         }
  
@@ -274,6 +275,7 @@ private:
             vel.twist.angular.z = angular_;
             // Publish velocity command
             vel_pub_->publish(vel);
+            last_linear_ = 0.0;
             return;
         }        
 
