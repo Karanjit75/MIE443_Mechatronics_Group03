@@ -75,6 +75,10 @@ private:
     }
 
     float choose_open_space(float left_d, float right_d) {
+        // If both invalid (infinity/undefined) -> don't flip randomly, just give last direction
+        if (!std::isfinite(left_d) && !std::isfinite(right_d)) {
+            return flip_direction;    // stays +1 or -1 from last time
+        }
         // If left side is more open:
         if (left_d > right_d + 0.001) {
             return 1.0;
