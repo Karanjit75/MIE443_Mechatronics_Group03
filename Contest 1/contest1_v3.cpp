@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <limits>       // included for use of std::numeric_limits<float>::infinity();
 #include <string>       // included for use of std::map<std::string, bool> bumpers_;
+#include <functional>
 
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
@@ -96,6 +97,11 @@ private:
     {
         have_scan_ = true; // to prevent driving forward before scan arrives
 
+        // For safety: if received empty scan or any invalid increment
+        if (scan->ranges.empty() || scan->angle_increment <= 0.0) {
+            return;
+        }
+
         // Number of rays
         nLasers_ = ((scan->angle_max - scan->angle_min) / scan->angle_increment);
         laserRange_ = scan->ranges;
@@ -105,6 +111,9 @@ private:
         // LiDAR has 90-degree offset, so front of robot is at -90 degrees in scan frame
         float laser_offset = deg2rad(-90.0);
         uint32_t front_idx = (laser_offset - scan->angle_min) / scan->angle_increment;
+
+        // Fix front_idx to be in the valid range
+        front_idx = std::min(front_idx, static_cast<uint32_t>(laserRange_.size() - 1));
 
         minLaserDist_ = std::numeric_limits<float>::infinity();
         left_min_dist_ = std::numeric_limits<float>::infinity(); // Check for open space on left side
