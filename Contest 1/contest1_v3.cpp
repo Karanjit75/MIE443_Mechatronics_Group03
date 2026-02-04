@@ -327,7 +327,7 @@ private:
                     last_check_y_ = pos_y_;
 
                     bool near_obstacle = (minLaserDist_ < Slow_Dist);
-                    if (!recovering && linear_ > want_forward && moved_dist < min_progress && near_obstacle) {
+                    if (!recovering && last_linear_ > want_forward && moved_dist < min_progress && near_obstacle) {
                         RCLCPP_WARN(this->get_logger(), "Stuck detected: moved %.3f m in %.1f sec. Forcing recovery state.", moved_dist, check_period);
                         force_recovery = true;
                     }
@@ -455,20 +455,32 @@ private:
     rclcpp::Subscription<irobot_create_msgs::msg::HazardDetectionVector>::SharedPtr hazard_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
-    
+
+    // State variables:
     rclcpp::Time start_time_;
     float angular_;
     float linear_;
+
+    // odom:
     double pos_x_;
     double pos_y_;
     double yaw_;
+
+    // robot safety checks:
     bool have_odom_ = false;    // track first odom received
     bool have_scan_ = false;    // track first scan received
+
+    // Stuck detection reference:
     rclcpp::Time last_check_time;
     double last_check_x_ = 0.0;
     double last_check_y_ = 0.0;
     bool init_progress_ = false;
+    float last_linear_ = 0.0;
+
+    // Bumpers:
     std::map<std::string, bool> bumpers_;
+
+    // Laser processing:
     float minLaserDist_;
     int32_t nLasers_;
     int32_t desiredNLasers_;
