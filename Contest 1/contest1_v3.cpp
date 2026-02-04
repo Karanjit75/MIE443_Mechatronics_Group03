@@ -241,6 +241,7 @@ private:
             vel.twist.linear.x = 0.0;
             vel.twist.angular.z = 0.0;
             vel_pub_->publish(vel);
+            last_linear_ = 0.0;    // added for consistent memory update
 
             // Shutdown the node
             rclcpp::shutdown();
