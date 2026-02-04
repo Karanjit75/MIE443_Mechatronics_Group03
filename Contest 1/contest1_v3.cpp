@@ -405,6 +405,10 @@ private:
                 if (t_lock > 0.90 && minLaserDist_ > Stop_Dist + 0.05) {
                     turn_lock = false;
                 }
+                // Backup: unlock by time alone (1.2 sec) to prevent infinitely reverse spinning
+                if (t_lock > 1.2) {
+                    turn_lock = false;
+                }
                 // Reverse arc (better than spinning in-place in corners)
                 linear_ = -0.05;
                 angular_ = Turn_Speed * turn_lock_dir;     
