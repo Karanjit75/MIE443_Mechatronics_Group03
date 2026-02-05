@@ -400,9 +400,9 @@ private:
         angular_ = 0.0;
 
         if (recovering) {
-            const double back_dist = 0.25; // meters to reverse
-            const double arc_dist = 0.18;  // meters to drive forward arc
-            const double yaw_tol = deg2rad(6.0); // acceptable yaw tolerance or error
+            const double back_dist = 0.28; // meters to reverse
+            const double arc_dist = 0.22;  // meters to drive forward arc
+            const double yaw_tol = deg2rad(7.0); // acceptable yaw tolerance or error
             const double timeout = 7.0; // max. time (sec) allowed in recovery
 
             // Initialize recovery stages once per recovery start
@@ -414,7 +414,7 @@ private:
                 rec_start_y = pos_y_;
 
                 // target is 90deg away from current yaw (turn direction decides sign)
-                rec_target_yaw = NormalizeAngle(yaw_ + recoveryTurnDirection * deg2rad(75.0));
+                rec_target_yaw = NormalizeAngle(yaw_ + recoveryTurnDirection * deg2rad(90.0));
             }
 
             // If recovery takes too long, cancel it
@@ -503,10 +503,10 @@ private:
             else {
                 in_too_close = false; // reset corner time whenever not too_close
                 // Wall follow
-                const float wall_follow_enter = 0.95; // start wall following if wall in this range
-                const float wall_follow_exit = 1.30; // stop wall following if wall is far away
-                const float desired_wall = 0.55; // target clearance to wall
-                const float follow_time = 18.0; // time (sec) before switching sides to improve map coverage
+                const float wall_follow_enter = 0.65; // start wall following if wall in this range
+                const float wall_follow_exit = 0.95; // stop wall following if wall is far away
+                const float desired_wall = 0.58; // target clearance to wall
+                const float follow_time = 12.0; // time (sec) before switching sides to improve map coverage
 
                 bool near_left = std::isfinite(left_min_dist_) && left_min_dist_ < wall_follow_enter;
                 bool near_right = std::isfinite(right_min_dist_) && right_min_dist_ < wall_follow_enter;
