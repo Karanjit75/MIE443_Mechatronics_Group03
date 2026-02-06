@@ -214,15 +214,15 @@ private:
         left_index : (front_angle + deg2rad(90.0))
         right_index : (front_angle - deg2rad(90.0))
         */
-        double front_angle_ = deg2rad(-90.0);    // LiDAR rotated front by -90deg
+        //double front_angle_ = deg2rad(-90.0);    // LiDAR rotated front by -90deg
             // Center Index
-        int center_index = (int)((front_angle_ - scan->angle_min) / scan->angle_increment);
+        int center_index = (int)((0.0 - scan->angle_min) / scan->angle_increment);
         center_index = std::clamp(center_index, 0, nLasers_ - 1);
             // Left Index (+90deg from scan angles)
-        int left_index = (int)((front_angle + deg2rad(90.0) - scan->angle_min) / scan->angle_increment);
+        int left_index = (int)((deg2rad(90.0) - scan->angle_min) / scan->angle_increment);
         left_index = std::clamp(left_index, 0, nLasers_ - 1);
             // Right Index (-90deg from scan angles)
-        int right_index = (int)((front_angle - deg2rad(90.0) - scan->angle_min) / scan->angle_increment);
+        int right_index = (int)((deg2rad(-90.0) - scan->angle_min) / scan->angle_increment);
         right_index = std::clamp(right_index, 0, nLasers_ - 1);
         
         /*
