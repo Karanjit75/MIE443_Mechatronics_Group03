@@ -90,7 +90,7 @@ private:
     // Normalize angle to [-pi, pi]
     static double NormalizeAngle(double a) {
         while (a > M_PI) a -= 2.0 * M_PI;
-        while (a < M_PI) a += 2.0 * M_PI;
+        while (a < -M_PI) a += 2.0 * M_PI;
         return a;
     }
 
