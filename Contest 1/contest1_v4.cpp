@@ -470,18 +470,18 @@ private:
                     }
 
                     // Set recovery targets based on level
-                    target_distance_ = 0.35;    // reverse distance
+                    target_distance_ = 0.40;    // reverse distance
                     target_rotation_ = deg2rad(135.0); // turn angle
                     target_arc_distance_ = 0.30; // arc distance
 
                     if (recovery_level_ == 2) {
-                        target_distance_ = 0.45;
+                        target_distance_ = 0.50;
                         target_rotation_ = deg2rad(170.0);
                         target_arc_distance_ = 0.40;
                     }
 
                     if (recovery_level_ == 3) {
-                        target_distance_ = 0.55;
+                        target_distance_ = 0.65;
                         target_rotation_ = deg2rad(175.0);
                         target_arc_distance_ = 0.55;
                     }
