@@ -476,13 +476,13 @@ private:
 
                     if (recovery_level_ == 2) {
                         target_distance_ = 0.45;
-                        target_rotation_ = deg2rad(180.0);
+                        target_rotation_ = deg2rad(170.0);
                         target_arc_distance_ = 0.40;
                     }
 
                     if (recovery_level_ == 3) {
                         target_distance_ = 0.55;
-                        target_rotation_ = deg2rad(200.0);
+                        target_rotation_ = deg2rad(175.0);
                         target_arc_distance_ = 0.55;
                     }
 
@@ -513,7 +513,7 @@ private:
 
                     // Set recovery targets for level 3
                     target_distance_ = 0.55;
-                    target_rotation_ = deg2rad(200.0);
+                    target_rotation_ = deg2rad(175.0);
                     target_arc_distance_ = 0.55;
 
                     turn_dir_ = ChooseOpenSide(left_distance_, right_distance_);
