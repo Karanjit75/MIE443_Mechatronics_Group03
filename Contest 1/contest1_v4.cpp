@@ -512,7 +512,7 @@ private:
                     recovery_level_ = 3;
 
                     // Set recovery targets for level 3
-                    target_distance_ = 0.55;
+                    target_distance_ = 0.65;
                     target_rotation_ = deg2rad(175.0);
                     target_arc_distance_ = 0.55;
 
