@@ -1,4 +1,4 @@
-#include <chrono>
++#include <chrono>
 #include <memory>
 #include <cmath>
 #include <map>
@@ -73,6 +73,7 @@ public:
         center_distance_ = std::numeric_limits<float>::infinity();
         left_distance_ = std::numeric_limits<float>::infinity();
         right_distance_ = std::numeric_limits<float>::infinity();
+        front_distance_ = std::numeric_limits<float>::infinity();
 
             // Bumper map keys
         bumpers_["bump_front_left"] = false;
@@ -204,6 +205,16 @@ private:
         if (nLasers_ < 10) return;
 
         // Create indices
+
+        /* if LiDAR -90deg assumption is true, uncomment 
+        and use front_angle_ in index calculations 
+        
+        double front_angle_ = deg2rad(-90.0);
+        center_index : instead of 0.0 put front_angle_
+        left_index : (front_angle + deg2rad(90.0))
+        right_index : (front_angle - deg2rad(90.0))
+        */
+
             // Center Index
         int center_index = (int)((0.0 - scan->angle_min) / scan->angle_increment);
         center_index = std::clamp(center_index, 0, nLasers_ - 1);
@@ -238,9 +249,9 @@ private:
         if (desiredNLasers_ < 1) desiredNLasers_ = 1;
 
         // Take minimum within +/- desiredNLasers_ around each index (better than single ray)
-        float cmin = 10.0f;
-        float lmin = 10.0f;
-        float rmin = 10.0f;
+        float cmin = std::numeric_limits<float>::infinity();
+        float lmin = std::numeric_limits<float>::infinity();
+        float rmin = std::numeric_limits<float>::infinity();
 
             // Center window:
         for (int i = center_index - desiredNLasers_; i <= center_index + desiredNLasers_; i++) {
@@ -265,6 +276,18 @@ private:
                 if (std::isfinite(v) && v < rmin) rmin = v;
             }
         }
+
+        int front_cone = desiredNLasers_ * 2; // 30-deg (desiredAngle_ = 15deg)
+        if (front_cone < 1) front_cone = 1;
+
+        float fmin = std::numeric_limits<float>::infinity();
+        for (int i = center_index - front_cone; i <= center_index + front_cone; i++) {
+            if (i >= 0 && i < nLasers_) {
+                float v = laserRange_[i];
+                if (std::isfinite(v) && v < fmin) fmin = v;
+            }
+        }
+        front_distance_ = fmin;
 
         // Save into members used by Control Loop:
         center_distance_ = cmin;
@@ -306,16 +329,13 @@ private:
 
         // Default = no hazard
         hazard_active_ = false;
-        // If any detection exists, treat as hazard
-        if (!hazard_vector->detections.empty()) {
-            hazard_active_ = true;
-            last_hazard_time_ = this->now();
-        }
 
         // Update bumper states based on current detections
         for (const auto& detection : hazard_vector->detections) {
             // HazardDetection type: only physical bumper contact
             if (detection.type == irobot_create_msgs::msg::HazardDetection::BUMP) {
+                hazard_active_ = true;
+                last_hazard_time_ = this->now();    // latch timer
                 bumpers_[detection.header.frame_id] = true;
                 
                 RCLCPP_INFO(this->get_logger(), "Bumper pressed: %s", detection.header.frame_id.c_str());
@@ -499,7 +519,7 @@ private:
                     return;
             }
             // Front safety -> take min. of center/left/right
-            double front_min = center_distance_;
+            double front_min = front_distance_;
             if (left_distance_ < front_min) front_min = left_distance_;
             if (right_distance_ < front_min) front_min = right_distance_;
 
@@ -590,7 +610,7 @@ private:
                     w = FixCmd(w, -0.55, 0.55);
 
                     double v = Fast_Speed;
-                    if (center_distance_ < Slow_Dist) v = Slow_Speed;
+                    if (front_distance_ < Slow_Dist) v = Slow_Speed;
 
                     // Switch sides occasionally
                     if ((now - wall_start_time_).seconds() > 12.0) {
@@ -606,7 +626,7 @@ private:
 
             // Default wandering (open space bias)
             double v = Fast_Speed;
-            if (center_distance_ < Slow_Dist) v = Slow_Speed;
+            if (front_distance_ < Slow_Dist) v = Slow_Speed;
 
             double w = 0.0;
             if (left_distance_ < right_distance_ - 0.07) w = -0.25;
@@ -765,6 +785,7 @@ private:
     float center_distance_;
     float left_distance_;
     float right_distance_;
+    float front_distance_;
 
     // Bumpers/hazards
     std::map<std::string, bool> bumpers_;
