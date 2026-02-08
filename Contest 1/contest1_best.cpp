@@ -323,7 +323,7 @@ private:
             // State 0: Wall-Follow + Junction decision (least-visited)
             if (state_ == 0) {
                 float Front_Stop = 0.45f;
-                float Front_Slow = 0.80f;
+                float Front_Slow = 0.80f;  
 
                 float Max_Free = 0.25f;
                 float Max_Near = 0.10f;
@@ -586,6 +586,12 @@ private:
             if (linear_ < -0.15f) linear_ = -0.15f;
             if (angular_ > (M_PI / 3)) angular_ = M_PI / 3;
             if (angular_ < (-M_PI / 3)) angular_ = -M_PI / 3;
+
+            if (center_distance_ <= 0.30f || left_distance_ <= 0.30f || right_distance_ <= 0.30f) {
+                if (linear_ > 0.10f) {
+                    linear_ = 0.10f;
+                }
+            }
         }
 
         geometry_msgs::msg::TwistStamped vel;
