@@ -521,3 +521,142 @@ private:
                 angular_ = 0.0f;
             } else {
                 state_ = 4;
+                have_start_yaw_ = false;
+                target_rotation_ = M_PI / 2.0;
+                linear_ = 0.0f;
+                angular_ = 0.0f;
+                have_start_pos_ = false;
+            }
+        }
+
+        // State 4: Turn after backup using yaw
+        else if (state_ == 4) {
+            pocket_timer_running_ = false;
+
+            if (!have_start_yaw_) {
+                start_yaw_ = yaw_;
+                have_start_yaw_ = true;
+            }
+
+            double angle_rotated = yaw_ - start_yaw_;
+            while (angle_rotated > M_PI) angle_rotated -= 2.0 * M_PI;
+            while (angle_rotated < -M_PI) angle_rotated += 2.0 * M_PI;
+
+            if (std::abs(angle_rotated) < target_rotation_) {
+                linear_ = 0.0f;
+                angular_ = 0.5f * (float)turn_dir_;
+            } else {
+                state_ = 0;
+                linear_ = 0.0f;
+                angular_ = 0.0f;
+                have_start_yaw_ = false;
+
+                cooldown_active_ = true;
+                cooldown_start_time_ = this->now();
+            }
+        }
+
+        // -------- final speed caps (contest safe) --------
+        if (linear_ > 0.25f) linear_ = 0.25f;
+        if (linear_ < -0.15f) linear_ = -0.15f;
+
+        if (angular_ > (float)(M_PI / 3.0)) angular_ = (float)(M_PI / 3.0);
+        if (angular_ < (float)(-M_PI / 3.0)) angular_ = (float)(-M_PI / 3.0);
+
+        // Extra slow-down if any direction is near
+        if (center_distance_ <= 0.30f || left_distance_ <= 0.30f || right_distance_ <= 0.30f) {
+            if (linear_ > 0.10f) linear_ = 0.10f;
+        }
+
+        geometry_msgs::msg::TwistStamped vel;
+        vel.header.stamp = this->now();
+        vel.twist.linear.x = linear_;
+        vel.twist.angular.z = angular_;
+        vel_pub_->publish(vel);
+    }
+
+    // ROS
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr vel_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
+    rclcpp::Subscription<irobot_create_msgs::msg::HazardDetectionVector>::SharedPtr hazard_sub_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::TimerBase::SharedPtr timer_;
+
+    // Time
+    rclcpp::Time start_time_;
+
+    // Cmd
+    float angular_;
+    float linear_;
+
+    // Odom
+    double pos_x_;
+    double pos_y_;
+    double yaw_;
+    bool have_odom_;
+
+    // Bumpers
+    std::map<std::string, bool> bumpers_;
+
+    // Laser
+    int32_t nLasers_;
+    int32_t desiredAngle_;
+    std::vector<float> laserRange_;
+    bool have_scan_;
+    bool have_scan_params_;
+    float scan_angle_min_;
+    float scan_angle_inc_;
+
+    // Robust min distances
+    float minLaserDist_;
+    float left_min_dist_;
+    float right_min_dist_;
+
+    // Distances used by logic (derived robustly)
+    float center_distance_;
+    float left_distance_;
+    float right_distance_;
+
+    // State machine
+    int state_;
+
+    // Move/turn targets
+    double start_pos_x_;
+    double start_pos_y_;
+    double target_distance_;
+    double start_yaw_;
+    double target_rotation_;
+    bool have_start_pos_;
+    bool have_start_yaw_;
+    int turn_dir_;
+
+    // Least-visited memory
+    double grid_resolution_;
+    std::map<std::pair<int, int>, int> visited_;
+    rclcpp::Time last_visit_time_;
+
+    // Stuck detection
+    double stuck_start_x_;
+    double stuck_start_y_;
+    rclcpp::Time stuck_start_time_;
+    bool stuck_timer_running_;
+
+    // Cooldown
+    rclcpp::Time cooldown_start_time_;
+    bool cooldown_active_;
+    double cooldown_seconds_;
+
+    // Pocket escape
+    bool pocket_timer_running_;
+    rclcpp::Time pocket_start_time_;
+    double pocket_hold_seconds_;
+};
+
+int main(int argc, char** argv)
+{
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<Contest1Node>();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+}
