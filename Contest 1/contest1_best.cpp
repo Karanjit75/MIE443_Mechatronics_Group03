@@ -51,69 +51,49 @@ public:
         pos_y_ = 0.0;
         yaw_   = 0.0;
 
-        // Laser processed values (robust)
-        minLaserDist_   = std::numeric_limits<float>::infinity();
-        left_min_dist_  = std::numeric_limits<float>::infinity();
-        right_min_dist_ = std::numeric_limits<float>::infinity();
+        // Laser processed values
+        minLaserDist_raw_ = std::numeric_limits<float>::infinity();
+        left_min_raw_     = std::numeric_limits<float>::infinity();
+        right_min_raw_    = std::numeric_limits<float>::infinity();
 
-        // Derived "directional" distances used by your state machine
+        // Filtered values (for stable control)
         center_distance_ = 12.0f;
         left_distance_   = 12.0f;
         right_distance_  = 12.0f;
 
         nLasers_ = 0;
-        desiredAngle_ = 10; // +/- degrees around "front" for minLaserDist_
+        desiredAngle_ = 10; // +/- degrees around front for the min window
 
         state_ = 0;
 
-        start_pos_x_ = 0.0;
-        start_pos_y_ = 0.0;
-        target_distance_ = 0.30; // FASTER: shorter commit at junctions (was 0.40)
-
-        start_yaw_ = 0.0;
+        target_distance_ = 0.30;      // quicker commit
         target_rotation_ = M_PI / 2.0;
 
         have_start_pos_ = false;
         have_start_yaw_ = false;
 
-        // Bumper states
         bumpers_["bump_front_left"] = false;
         bumpers_["bump_front_center"] = false;
         bumpers_["bump_front_right"] = false;
         bumpers_["bump_left"] = false;
         bumpers_["bump_right"] = false;
 
-        // Least-visited memory
         grid_resolution_ = 0.25;
         last_visit_time_ = this->now();
 
-        // Turn directions (+1=left/CCW, -1=right/CW)
         turn_dir_ = +1;
 
-        // Stuck detection
-        stuck_start_x_ = 0.0;
-        stuck_start_y_ = 0.0;
-        stuck_start_time_ = this->now();
         stuck_timer_running_ = false;
 
-        // Cooldown turns
-        cooldown_start_time_ = this->now();
         cooldown_active_ = false;
-        cooldown_seconds_ = 0.8; // FASTER: shorter cooldown (was 1.0)
+        cooldown_seconds_ = 0.8;
 
-        // Scan parameters
-        scan_angle_min_ = 0.0f;
-        scan_angle_inc_ = 0.0f;
-        have_scan_params_ = false;
-
-        // Startup safety
         have_scan_ = false;
         have_odom_ = false;
 
-        // Pocket escape timer
-        pocket_timer_running_ = false;
-        pocket_start_time_ = this->now();
-        pocket_hold_seconds_ = 1.2; // FASTER: quicker pocket trigger (was 1.5)
+        // Thrash protection
+        front_close_count_ = 0;
+        front_blocked_latched_ = false;
 
         RCLCPP_INFO(this->get_logger(), "Contest 1 node initialized. Running for 480 seconds.");
     }
@@ -138,55 +118,55 @@ private:
         return r;
     }
 
-    // Pick “front” robustly (some setups are front=0, some are front=-90deg)
     int chooseFrontIndex(int n, float angle_min, float angle_inc) const {
+        // robust: front could be 0 or -90 depending on setup
         int mid = n / 2;
-        int idx0   = angleToIndex(0.0f, (float)angle_min, (float)angle_inc, n);
-        int idxm90 = angleToIndex((float)deg2rad(-90.0), (float)angle_min, (float)angle_inc, n);
+        int idx0   = angleToIndex(0.0f, angle_min, angle_inc, n);
+        int idxm90 = angleToIndex((float)deg2rad(-90.0), angle_min, angle_inc, n);
         return (std::abs(idx0 - mid) < std::abs(idxm90 - mid)) ? idx0 : idxm90;
     }
 
-    void publishStopAndReturn() {
-        linear_ = 0.0f;
-        angular_ = 0.0f;
+    void publishCmd(float lin, float ang) {
         geometry_msgs::msg::TwistStamped vel;
         vel.header.stamp = this->now();
-        vel.twist.linear.x = 0.0;
-        vel.twist.angular.z = 0.0;
+        vel.twist.linear.x = lin;
+        vel.twist.angular.z = ang;
         vel_pub_->publish(vel);
+    }
+
+    // simple smoothing to prevent jitter (alpha 0.25 = moderate smoothing)
+    float smooth(float prev, float now, float alpha = 0.25f) const {
+        return (1.0f - alpha) * prev + alpha * now;
     }
 
     // ---------- callbacks ----------
     void laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
         have_scan_ = true;
-
         if (scan->ranges.empty() || scan->angle_increment <= 0.0f) return;
 
         laserRange_ = scan->ranges;
         nLasers_ = (int)laserRange_.size();
+        if (nLasers_ <= 0) return;
 
-        scan_angle_min_ = (float)scan->angle_min;
-        scan_angle_inc_ = (float)scan->angle_increment;
-        have_scan_params_ = (nLasers_ > 0);
+        float angle_min = (float)scan->angle_min;
+        float angle_inc = (float)scan->angle_increment;
 
-        if (!have_scan_params_) return;
+        int front_idx = chooseFrontIndex(nLasers_, angle_min, angle_inc);
 
-        int front_idx = chooseFrontIndex(nLasers_, scan_angle_min_, scan_angle_inc_);
-
-        // minLaserDist_ in +/- desiredAngle around front
-        int half_window = std::max(1, (int)std::lround((float)deg2rad((double)desiredAngle_) / scan_angle_inc_));
+        int half_window = std::max(1, (int)std::lround((float)deg2rad((double)desiredAngle_) / angle_inc));
         int start_i = clampIndex(front_idx - half_window, nLasers_);
         int end_i   = clampIndex(front_idx + half_window, nLasers_);
 
-        minLaserDist_ = std::numeric_limits<float>::infinity();
+        // front min (raw)
+        minLaserDist_raw_ = std::numeric_limits<float>::infinity();
         for (int i = start_i; i <= end_i; ++i) {
-            minLaserDist_ = std::min(minLaserDist_, safeRange(laserRange_[i]));
+            minLaserDist_raw_ = std::min(minLaserDist_raw_, safeRange(laserRange_[i]));
         }
 
-        // left/right window minimums (robust side openness)
-        left_min_dist_  = std::numeric_limits<float>::infinity();
-        right_min_dist_ = std::numeric_limits<float>::infinity();
+        // left/right mins (raw) using side windows (robust)
+        left_min_raw_  = std::numeric_limits<float>::infinity();
+        right_min_raw_ = std::numeric_limits<float>::infinity();
 
         int num_rays = half_window;
         int left_center  = clampIndex(front_idx + num_rays, nLasers_);
@@ -194,15 +174,15 @@ private:
 
         for (int i = 0; i < num_rays; ++i) {
             int li = left_center + i;
-            if (li >= 0 && li < nLasers_) left_min_dist_ = std::min(left_min_dist_, safeRange(laserRange_[li]));
+            if (li >= 0 && li < nLasers_) left_min_raw_ = std::min(left_min_raw_, safeRange(laserRange_[li]));
             int ri = right_center - i;
-            if (ri >= 0 && ri < nLasers_) right_min_dist_ = std::min(right_min_dist_, safeRange(laserRange_[ri]));
+            if (ri >= 0 && ri < nLasers_) right_min_raw_ = std::min(right_min_raw_, safeRange(laserRange_[ri]));
         }
 
-        // Provide distances used by your logic
-        center_distance_ = safeRange(minLaserDist_);
-        left_distance_   = safeRange(left_min_dist_);
-        right_distance_  = safeRange(right_min_dist_);
+        // Filter (this is what fixes “stop-go-stop-go”)
+        center_distance_ = smooth(center_distance_, minLaserDist_raw_);
+        left_distance_   = smooth(left_distance_,   left_min_raw_);
+        right_distance_  = smooth(right_distance_,  right_min_raw_);
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
@@ -216,7 +196,6 @@ private:
     void hazardCallback(const irobot_create_msgs::msg::HazardDetectionVector::SharedPtr hazard_vector)
     {
         for (auto& kv : bumpers_) kv.second = false;
-
         for (const auto& detection : hazard_vector->detections) {
             if (detection.type == irobot_create_msgs::msg::HazardDetection::BUMP) {
                 bumpers_[detection.header.frame_id] = true;
@@ -232,18 +211,17 @@ private:
 
         if (seconds_elapsed >= 480.0) {
             RCLCPP_INFO(this->get_logger(), "Contest time completed (480 seconds). Stopping robot.");
-            publishStopAndReturn();
+            publishCmd(0.0f, 0.0f);
             rclcpp::shutdown();
             return;
         }
 
-        // Startup safety
         if (!have_odom_ || !have_scan_) {
-            publishStopAndReturn();
+            publishCmd(0.0f, 0.0f);
             return;
         }
 
-        // Update visited cell counter every 0.5 sec
+        // Update visited every 0.5s
         if ((now - last_visit_time_).seconds() > 0.5) {
             int cx = (int)std::floor(pos_x_ / grid_resolution_);
             int cy = (int)std::floor(pos_y_ / grid_resolution_);
@@ -251,182 +229,90 @@ private:
             last_visit_time_ = now;
         }
 
-        // Cooldown update
+        // cooldown
         if (cooldown_active_) {
             if ((now - cooldown_start_time_).seconds() >= cooldown_seconds_) cooldown_active_ = false;
         }
 
-        // Bumper pressed?
-        bool any_bumper_pressed = false;
-        std::string pressed_bumper;
+        // bumper check
+        bool any_bumper = false;
+        std::string pressed;
         for (const auto& kv : bumpers_) {
-            if (kv.second) { any_bumper_pressed = true; pressed_bumper = kv.first; break; }
+            if (kv.second) { any_bumper = true; pressed = kv.first; break; }
         }
 
-        if (any_bumper_pressed) {
-            if (state_ != 3 && state_ != 4) {
-                turn_dir_ = +1;
-                if (pressed_bumper.find("left")  != std::string::npos) turn_dir_ = -1;
-                if (pressed_bumper.find("right") != std::string::npos) turn_dir_ = +1;
+        // CONSTANTS
+        const float Front_Stop   = 0.50f;  // trigger turn
+        const float Front_Clear  = 0.60f;  // hysteresis: must exceed this to unlatch
+        const int   CloseNeeded  = 3;      // must be close for 3 consecutive ticks (0.3s at 10Hz)
 
-                if (pressed_bumper.find("front") != std::string::npos) {
-                    turn_dir_ = (left_distance_ >= right_distance_) ? +1 : -1;
-                }
+        const float FastSpeed = 0.25f;     // contest max
+        const float SlowSpeed = 0.10f;     // your rule near obstacles
+        const float TurnSpeed = 0.75f;     // faster turns (still capped)
 
-                state_ = 3;
-                have_start_pos_ = false;
-                pocket_timer_running_ = false;
-            }
+        const float RightWallDesired = 0.45f;
+        const float WallKP = 1.2f;
+
+        // ---- Front latch (stops the “stop-go-stop-go” jitter) ----
+        if (center_distance_ < Front_Stop) front_close_count_++;
+        else front_close_count_ = 0;
+
+        if (!front_blocked_latched_ && front_close_count_ >= CloseNeeded) {
+            front_blocked_latched_ = true;
+        }
+        // only unlatch when clearly safe (hysteresis)
+        if (front_blocked_latched_ && center_distance_ > Front_Clear) {
+            front_blocked_latched_ = false;
+            front_close_count_ = 0;
         }
 
-        // Stuck detection (only in state 0 while trying forward)
-        if (state_ == 0 && linear_ > 0.05f) {
-            if (!stuck_timer_running_) {
-                stuck_timer_running_ = true;
-                stuck_start_time_ = now;
-                stuck_start_x_ = pos_x_;
-                stuck_start_y_ = pos_y_;
-            } else {
-                double dt = (now - stuck_start_time_).seconds();
-                double moved = std::hypot(pos_x_ - stuck_start_x_, pos_y_ - stuck_start_y_);
-                if (dt >= 2.0 && moved < 0.05) {
-                    state_ = 3;
-                    have_start_pos_ = false;
-                    turn_dir_ = (left_distance_ >= right_distance_) ? +1 : -1;
-                    stuck_timer_running_ = false;
-                    pocket_timer_running_ = false;
-                }
-                if (moved >= 0.10) stuck_timer_running_ = false;
+        // ---- State transitions on bumper ----
+        if (any_bumper && state_ != 3 && state_ != 4) {
+            turn_dir_ = +1;
+            if (pressed.find("left")  != std::string::npos) turn_dir_ = -1;
+            if (pressed.find("right") != std::string::npos) turn_dir_ = +1;
+            if (pressed.find("front") != std::string::npos) {
+                turn_dir_ = (left_distance_ >= right_distance_) ? +1 : -1;
             }
-        } else {
-            stuck_timer_running_ = false;
+            state_ = 3;
+            have_start_pos_ = false;
         }
 
         // -------- STATE MACHINE --------
         if (state_ == 0) {
-            // FASTER BEHAVIOR:
-            // - Still respects max 0.25
-            // - Slows ONLY when front is close (not sides)
-            const float Front_Stop = 0.50f;
-            const float Front_Slow = 0.70f;  // FASTER: slow later (was 0.80)
-
-            const float Speed_Fast = 0.25f;
-            const float Speed_Slow = 0.10f;  // keep slow zone cap
-
-            const float Right_Wall_Desired = 0.45f;
-            const float Wall_KP = 1.2f;
-
-            if (center_distance_ < Front_Stop) {
+            // If front truly blocked (latched), decide a turn
+            if (front_blocked_latched_) {
                 state_ = 2;
                 have_start_yaw_ = false;
                 turn_dir_ = (left_distance_ >= right_distance_) ? +1 : -1;
-                target_rotation_ = M_PI / 2.0;
                 linear_ = 0.0f;
                 angular_ = 0.0f;
-                pocket_timer_running_ = false;
             } else {
-                bool straight_open = (center_distance_ > 1.20f);
-                bool left_open     = (left_distance_   > 1.00f);
-                bool right_open    = (right_distance_  > 1.00f);
+                // wall-follow / exploration
+                linear_ = FastSpeed;
 
-                if (!cooldown_active_ && straight_open && (left_open || right_open)) {
-                    double look = 0.60;
+                float wall_error = RightWallDesired - right_distance_;
+                float cmd = -WallKP * wall_error;
 
-                    int s_count = 999999, l_count = 999999, r_count = 999999;
-
-                    if (straight_open) {
-                        double sx = pos_x_ + look * std::cos(yaw_);
-                        double sy = pos_y_ + look * std::sin(yaw_);
-                        int scx = (int)std::floor(sx / grid_resolution_);
-                        int scy = (int)std::floor(sy / grid_resolution_);
-                        s_count = visited_[{scx, scy}];
-                    }
-                    if (left_open) {
-                        double lx = pos_x_ + look * std::cos(yaw_ + M_PI/2.0);
-                        double ly = pos_y_ + look * std::sin(yaw_ + M_PI/2.0);
-                        int lcx = (int)std::floor(lx / grid_resolution_);
-                        int lcy = (int)std::floor(ly / grid_resolution_);
-                        l_count = visited_[{lcx, lcy}];
-                    }
-                    if (right_open) {
-                        double rx = pos_x_ + look * std::cos(yaw_ - M_PI/2.0);
-                        double ry = pos_y_ + look * std::sin(yaw_ - M_PI/2.0);
-                        int rcx = (int)std::floor(rx / grid_resolution_);
-                        int rcy = (int)std::floor(ry / grid_resolution_);
-                        r_count = visited_[{rcx, rcy}];
-                    }
-
-                    if (s_count <= r_count && s_count <= l_count) {
-                        state_ = 1;
-                        target_distance_ = 0.30; // keep faster commit
-                        have_start_pos_ = false;
-                        linear_ = 0.0f;
-                        angular_ = 0.0f;
-                    } else if (r_count <= l_count) {
-                        state_ = 2;
-                        have_start_yaw_ = false;
-                        turn_dir_ = -1;
-                        target_rotation_ = M_PI / 2.0;
-                        linear_ = 0.0f;
-                        angular_ = 0.0f;
-                    } else {
-                        state_ = 2;
-                        have_start_yaw_ = false;
-                        turn_dir_ = +1;
-                        target_rotation_ = M_PI / 2.0;
-                        linear_ = 0.0f;
-                        angular_ = 0.0f;
-                    }
-                    pocket_timer_running_ = false;
-                } else {
-                    // Speed: slow ONLY when front is near
-                    linear_ = (center_distance_ < Front_Slow) ? Speed_Slow : Speed_Fast;
-
-                    // Wall-follow
-                    float wall_error = Right_Wall_Desired - right_distance_;
-                    float cmd = -Wall_KP * wall_error;
-
-                    // FASTER “find right wall” when right side is wide open
-                    if (right_distance_ > 2.0f && center_distance_ > 1.2f) {
-                        cmd = -0.55f;
-                        linear_ = 0.22f;
-                    }
-
-                    cmd = std::max(-0.9f, std::min(cmd, 0.9f));
-                    angular_ = cmd;
-
-                    // Pocket escape
-                    bool pocket_now = (!cooldown_active_ && right_distance_ > 1.8f && left_distance_ < 0.7f && center_distance_ > 0.9f);
-                    if (pocket_now) {
-                        if (!pocket_timer_running_) {
-                            pocket_timer_running_ = true;
-                            pocket_start_time_ = now;
-                        } else if ((now - pocket_start_time_).seconds() >= pocket_hold_seconds_) {
-                            state_ = 1;
-                            target_distance_ = 0.30;
-                            have_start_pos_ = false;
-                            linear_ = 0.0f;
-                            angular_ = 0.0f;
-                            pocket_timer_running_ = false;
-                        }
-                    } else {
-                        pocket_timer_running_ = false;
-                    }
+                // If no right wall (very open), arc right to find one
+                if (right_distance_ > 2.0f && center_distance_ > 1.2f) {
+                    cmd = -0.55f;
+                    linear_ = 0.22f;
                 }
+
+                cmd = std::max(-0.9f, std::min(cmd, 0.9f));
+                angular_ = cmd;
             }
         }
         else if (state_ == 1) {
-            pocket_timer_running_ = false;
-
             if (!have_start_pos_) {
                 start_pos_x_ = pos_x_;
                 start_pos_y_ = pos_y_;
                 have_start_pos_ = true;
             }
-
             double dist = std::hypot(pos_x_ - start_pos_x_, pos_y_ - start_pos_y_);
             if (dist < target_distance_) {
-                linear_ = 0.25f;
+                linear_ = FastSpeed;
                 angular_ = 0.0f;
             } else {
                 state_ = 0;
@@ -436,8 +322,6 @@ private:
             }
         }
         else if (state_ == 2) {
-            pocket_timer_running_ = false;
-
             if (!have_start_yaw_) {
                 start_yaw_ = yaw_;
                 have_start_yaw_ = true;
@@ -449,7 +333,7 @@ private:
 
             if (std::abs(angle_rotated) < target_rotation_) {
                 linear_ = 0.0f;
-                angular_ = 0.75f * (float)turn_dir_; // FASTER turns (was 0.5)
+                angular_ = TurnSpeed * (float)turn_dir_;
             } else {
                 state_ = 0;
                 linear_ = 0.0f;
@@ -460,30 +344,24 @@ private:
             }
         }
         else if (state_ == 3) {
-            pocket_timer_running_ = false;
-
             if (!have_start_pos_) {
                 start_pos_x_ = pos_x_;
                 start_pos_y_ = pos_y_;
                 have_start_pos_ = true;
             }
-
             double dist = std::hypot(pos_x_ - start_pos_x_, pos_y_ - start_pos_y_);
             if (dist < 0.20) {
-                linear_ = -0.12f; // slightly faster backup
+                linear_ = -0.12f;
                 angular_ = 0.0f;
             } else {
                 state_ = 4;
                 have_start_yaw_ = false;
-                target_rotation_ = M_PI / 2.0;
                 linear_ = 0.0f;
                 angular_ = 0.0f;
                 have_start_pos_ = false;
             }
         }
         else if (state_ == 4) {
-            pocket_timer_running_ = false;
-
             if (!have_start_yaw_) {
                 start_yaw_ = yaw_;
                 have_start_yaw_ = true;
@@ -495,7 +373,7 @@ private:
 
             if (std::abs(angle_rotated) < target_rotation_) {
                 linear_ = 0.0f;
-                angular_ = 0.75f * (float)turn_dir_; // FASTER turns
+                angular_ = TurnSpeed * (float)turn_dir_;
             } else {
                 state_ = 0;
                 linear_ = 0.0f;
@@ -506,24 +384,17 @@ private:
             }
         }
 
-        // -------- final speed caps (contest safe) --------
-        if (linear_ > 0.25f) linear_ = 0.25f;
-        if (linear_ < -0.15f) linear_ = -0.15f;
+        // -------- FINAL SAFETY CAPS --------
+        // hard caps
+        linear_  = std::max(-0.15f, std::min(linear_, 0.25f));
+        angular_ = std::max(-1.05f, std::min(angular_, 1.05f));
 
-        // angular cap
-        if (angular_ > 1.05f) angular_ = 1.05f;
-        if (angular_ < -1.05f) angular_ = -1.05f;
-
-        // IMPORTANT: only apply hard slow when FRONT is critical (prevents slow-all-the-time)
-        if (center_distance_ <= 0.22f) {
+        // YOUR RULE: slow to 0.10 within 30cm of obstacles (front/left/right)
+        if (center_distance_ <= 0.30f || left_distance_ <= 0.30f || right_distance_ <= 0.30f) {
             if (linear_ > 0.10f) linear_ = 0.10f;
         }
 
-        geometry_msgs::msg::TwistStamped vel;
-        vel.header.stamp = now;
-        vel.twist.linear.x = linear_;
-        vel.twist.angular.z = angular_;
-        vel_pub_->publish(vel);
+        publishCmd(linear_, angular_);
     }
 
     // ROS
@@ -533,74 +404,67 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
-    // Time
+    // time
     rclcpp::Time start_time_;
 
-    // Cmd
+    // command
     float angular_;
     float linear_;
 
-    // Odom
+    // odom
     double pos_x_;
     double pos_y_;
     double yaw_;
     bool have_odom_;
 
-    // Bumpers
+    // bumpers
     std::map<std::string, bool> bumpers_;
 
-    // Laser
+    // laser raw + filtered
+    std::vector<float> laserRange_;
     int32_t nLasers_;
     int32_t desiredAngle_;
-    std::vector<float> laserRange_;
     bool have_scan_;
-    bool have_scan_params_;
-    float scan_angle_min_;
-    float scan_angle_inc_;
 
-    // Robust mins
-    float minLaserDist_;
-    float left_min_dist_;
-    float right_min_dist_;
+    float minLaserDist_raw_;
+    float left_min_raw_;
+    float right_min_raw_;
 
-    // Distances used by logic
     float center_distance_;
     float left_distance_;
     float right_distance_;
 
-    // State machine
-    int state_;
+    // front thrash protection
+    int front_close_count_;
+    bool front_blocked_latched_;
 
-    // Move/turn targets
-    double start_pos_x_;
-    double start_pos_y_;
+    // state machine
+    int state_;
+    int turn_dir_;
+
+    double start_pos_x_ = 0.0;
+    double start_pos_y_ = 0.0;
     double target_distance_;
-    double start_yaw_;
+    double start_yaw_ = 0.0;
     double target_rotation_;
     bool have_start_pos_;
     bool have_start_yaw_;
-    int turn_dir_;
 
-    // Least-visited memory
+    // least-visited
     double grid_resolution_;
     std::map<std::pair<int, int>, int> visited_;
     rclcpp::Time last_visit_time_;
 
-    // Stuck detection
-    double stuck_start_x_;
-    double stuck_start_y_;
-    rclcpp::Time stuck_start_time_;
+    // stuck (kept but minimal)
     bool stuck_timer_running_;
+    double stuck_start_x_ = 0.0;
+    double stuck_start_y_ = 0.0;
+    rclcpp::Time stuck_start_time_;
 
-    // Cooldown
+    // cooldown
     rclcpp::Time cooldown_start_time_;
     bool cooldown_active_;
     double cooldown_seconds_;
-
-    // Pocket escape
-    bool pocket_timer_running_;
-    rclcpp::Time pocket_start_time_;
-    double pocket_hold_seconds_;
 };
 
 int main(int argc, char** argv)
