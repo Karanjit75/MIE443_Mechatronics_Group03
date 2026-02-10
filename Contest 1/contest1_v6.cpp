@@ -370,33 +370,7 @@ private:
         // (7) Different Modes (Recovery Mode, Normal Mode)
         linear_ = 0.0;
         angular_ = 0.0;
-/*
-        if (recovering) {
-            // Recovery: reverse -> turn -> forward arc motion
-            double recovery_time = (now - recoverStart).seconds();
 
-            if (recovery_time < 0.90) {
-                // Reverse to clear obstacle footprint
-                linear_ = -0.1;
-                angular_ = 0.0;
-            }
-            else if (recovery_time < 2.10) {
-                // Turn away to change heading direction
-                linear_ = 0.0;
-                angular_ = Turn_Speed * recoveryTurnDirection;
-            }
-            else if (recovery_time < 2.90) {
-                // Move in a forward arc to avoid re-contact with the obstacle
-                linear_ = 0.08;
-                angular_ = 0.55 * recoveryTurnDirection;
-            }
-            else {
-                // Recovery done
-                recovering = false;
-                linear_ = 0.0;
-                angular_ = 0.0;
-            }
-            */
         if (recovering) {
             const double back_dist = 0.35; // meters to reverse
             const double arc_dist = 0.30;  // meters to drive forward arc
