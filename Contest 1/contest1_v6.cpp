@@ -64,7 +64,7 @@ public:
         minLaserDist_ = std::numeric_limits<float>::infinity();
         nLasers_ = 0;
         desiredNLasers_ = 0;
-        desiredAngle_ = 20;   // +/- 20-degree around forward (total 30-degree)
+        desiredAngle_ = 15;   // +/- 15-degree around forward (total 30-degree)
 
         RCLCPP_INFO(this->get_logger(), "Contest 1 node initialized. Running for 480 seconds.");
     }
