@@ -245,7 +245,7 @@ int main(int argc, char** argv)
 
                 if (manipulable_object_name.empty()) {
                     RCLCPP_ERROR(node->get_logger(), "Failed to detect manipulable object.");
-                    state = ContestState::Failed;
+                    state = ContestState::Visit_Scene_Objects;
                     break;
                 }
 
