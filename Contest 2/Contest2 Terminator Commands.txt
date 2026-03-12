@@ -26,6 +26,7 @@ ssh ubuntu@100.69.127.143
 ros2 run mie443_contest2 image_capture_server
 
 YOLO Detector (new terminal):
+cd out of ros2_ws folder
 source contest2/bin/activate
 ros2 run mie443_contest2 yolo_detector.py
 
@@ -41,5 +42,6 @@ ros2 launch apriltag_ros camera_36h11.launch.yml
 
 New terminal:
 ros2 run mie443_contest2 contest2
+
 
 
