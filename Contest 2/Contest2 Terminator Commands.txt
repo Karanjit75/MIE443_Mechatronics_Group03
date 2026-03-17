@@ -5,6 +5,10 @@ The wrist camera cable should be connected to the TurtleBot 4.
 The USB-C to USB-A cable should be connected from the arm controller board to the TurtleBot 4. 
 The battery should be connected to the arm controller board
 
+To restart Rasberry Pi:
+ssh into turtlebot
+sudo systemctl restart turtlebot4.service
+
 Build Package:
 cd ~/ros2_ws
 colcon build
@@ -35,6 +39,7 @@ ssh ubuntu@100.69.127.143
 source contest2/bin/activate
 ros2 launch lerobot_moveit so101_turtlebot.launch.py
 New terminal (moveit2): ros2 launch lerobot_moveit so101_laptop.launch.py
+(If we want to extract arm coordinates: ros2 run tf2_ros tf2_echo arm_mount gripper)
 
 AprilTags:
 ssh ubuntu@100.69.127.143
