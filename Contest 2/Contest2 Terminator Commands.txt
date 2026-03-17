@@ -28,6 +28,7 @@ ros2 launch turtlebot4_viz view_navigation.launch.py
 OAK-D Lite Camera Image Capture Server (new terminal):
 ssh ubuntu@100.69.127.143
 ros2 run mie443_contest2 image_capture_server
+(OAK-D camera bringup: ros2 run rqt_image_view rqt_image_view)
 
 YOLO Detector (new terminal):
 cd out of ros2_ws folder
