@@ -93,7 +93,8 @@ int main(int argc, char** argv) {
         SCAN_MANIPULABLE_OBJECT,
         NAVIGATE_TO_SCENE,
         DETECT_OBJECT,
-        CHANGE_PERSPECTIVE,
+        ROTATE_SLIGHTLY,
+        // CHANGE_PERSPECTIVE,
         LOCATE_DISCARD,
         RETURN_TO_START,
         DONE
@@ -144,7 +145,7 @@ int main(int argc, char** argv) {
                     manipulable_object_name = yoloDetector.getObjectName(CameraSource::WRIST, true);
                     if (!manipulable_object_name.empty()) {
                         manipulable_confidence = yoloDetector.getConfidence();
-                        if (manipulable_confidence > 0.5) {
+                        if (manipulable_confidence > 0.3) {
                             RCLCPP_INFO(node->get_logger(), "Found manipulable object: %s (Confidence: %.2f)", 
                                     manipulable_object_name.c_str(), manipulable_confidence);
                             armController.moveToCartesianPose(manipulable_object_rel_pos[0], 
@@ -202,7 +203,7 @@ int main(int argc, char** argv) {
                 std::string detected_item = yoloDetector.getObjectName(CameraSource::OAKD, false);                
                 if (!detected_item.empty()) {
                     float confidence = yoloDetector.getConfidence();
-                    if (valid_objects.count(detected_item) && confidence > 0.5) {
+                    if (valid_objects.count(detected_item) && confidence > 0.3) {
                         RCLCPP_INFO(node->get_logger(), "Successfully Detected: %s (Confidence: %.2f)", detected_item.c_str(), confidence);
                         discovered_scene_objects.push_back(detected_item);
                         discovered_object_confidence.push_back(confidence);
@@ -214,40 +215,61 @@ int main(int argc, char** argv) {
                         }
                     }
                 } else {
-                    RCLCPP_INFO(node->get_logger(), "No object detected at this location, retrying.");
-                    current_state = RobotState::CHANGE_PERSPECTIVE;
+                    RCLCPP_INFO(node->get_logger(), "No object detected at this location, rotating robot.");
+                    current_state = RobotState::ROTATE_SLIGHTLY;
                 }
                 break;
             }
 
-            case RobotState::CHANGE_PERSPECTIVE: {
-                RCLCPP_INFO(node->get_logger(), "Trying different perspectives...");
-                std::vector<double> reference_coordinate = {boxes.coords[current_target_index][0], 
-                                                                    boxes.coords[current_target_index][1], 
-                                                                    boxes.coords[current_target_index][2]};
-                bool back_up = navigation.moveToGoal(reference_coordinate[0]-0.5*cos(reference_coordinate[2]+M_PI), 
-                                                    reference_coordinate[1]-0.5*sin(reference_coordinate[2]+M_PI), 
-                                                    reference_coordinate[2]);
-                if (back_up) {
-                    std::string detected_item = yoloDetector.getObjectName(CameraSource::OAKD, false);
-                    if (!detected_item.empty()) {
-                        float confidence = yoloDetector.getConfidence();
-                        if (/*valid_objects.count(detected_item) &&*/ confidence > 0.5) {
-                            RCLCPP_INFO(node->get_logger(), "Successfully Detected: %s (Confidence: %.2f)", detected_item.c_str(), confidence);
-                            discovered_scene_objects.push_back(detected_item);
-                            discovered_object_confidence.push_back(confidence);
-                            bool back = navigation.moveToGoal(reference_coordinate[0], reference_coordinate[1], reference_coordinate[2]);
-                            if (back && (detected_item == manipulable_object_name)) {
-                                current_state = RobotState::LOCATE_DISCARD;
+            case RobotState::ROTATE_SLIGHTLY: {
+                for (int i = 0; i < 12; ++i) {
+                    bool rotate_goal = navigation.moveToGoal(goal_x, goal_y, goal_phi+((M_PI*i)/6));
+                    if (rotate_goal) {
+                        std::string detected_item = yoloDetector.getObjectName(CameraSource::OAKD, false);
+                        if (!detected_item.empty()) {
+                            float confidence = yoloDetector.getConfidence();
+                            if (confidence > 0.3) {
+                                RCLCPP_INFO(node->get_logger(), "Successfully Detected Something. Returning to Detect Object State with Current Angle.");
+                                current_state = RobotState::DETECT_OBJECT;
+                                break;
                             }
                         }
                     }
-                } else {
-                    current_target_index++;
-                    current_state = RobotState::NAVIGATE_TO_SCENE;
                 }
+                RCLCPP_WARN(node->get_logger(), "No object detected at location index %d.", current_target_index + 1);
+                current_target_index++;
+                current_state = RobotState::NAVIGATE_TO_SCENE;
                 break;
             }
+
+            // case RobotState::CHANGE_PERSPECTIVE: {
+            //     RCLCPP_INFO(node->get_logger(), "Trying different perspectives...");
+            //     std::vector<double> reference_coordinate = {boxes.coords[current_target_index][0], 
+            //                                                         boxes.coords[current_target_index][1], 
+            //                                                         boxes.coords[current_target_index][2]};
+            //     bool back_up = navigation.moveToGoal(reference_coordinate[0]-0.5*cos(reference_coordinate[2]+M_PI), 
+            //                                         reference_coordinate[1]-0.5*sin(reference_coordinate[2]+M_PI), 
+            //                                         reference_coordinate[2]);
+            //     if (back_up) {
+            //         std::string detected_item = yoloDetector.getObjectName(CameraSource::OAKD, false);
+            //         if (!detected_item.empty()) {
+            //             float confidence = yoloDetector.getConfidence();
+            //             if (/*valid_objects.count(detected_item) &&*/ confidence > 0.5) {
+            //                 RCLCPP_INFO(node->get_logger(), "Successfully Detected: %s (Confidence: %.2f)", detected_item.c_str(), confidence);
+            //                 discovered_scene_objects.push_back(detected_item);
+            //                 discovered_object_confidence.push_back(confidence);
+            //                 bool back = navigation.moveToGoal(reference_coordinate[0], reference_coordinate[1], reference_coordinate[2]);
+            //                 if (back && (detected_item == manipulable_object_name)) {
+            //                     current_state = RobotState::LOCATE_DISCARD;
+            //                 }
+            //             }
+            //         }
+            //     } else {
+            //         current_target_index++;
+            //         current_state = RobotState::NAVIGATE_TO_SCENE;
+            //     }
+            //     break;
+            // }
 
             case RobotState::LOCATE_DISCARD: {
                 RCLCPP_INFO(node->get_logger(), "Found matching bin, searching for bin tag...");
