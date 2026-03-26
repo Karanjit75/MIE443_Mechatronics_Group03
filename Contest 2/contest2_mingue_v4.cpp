@@ -286,6 +286,10 @@ int main(int argc, char** argv) {
 
                 // List of tags visible to the camera
                 std::vector<int> visible_tags = tagDetector.getVisibleTags(possible_tags);
+                
+                // Joint msg name
+                sensor_msgs::msg::JointState joint_msg;
+                joint_msg.name = {"1", "2", "3", "4", "5", "6"};
 
                 if (!visible_tags.empty()) {
                     int target_tag_id = visible_tags[0];
