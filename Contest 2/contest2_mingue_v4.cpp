@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
                 joint_msg.name = {"1", "2", "3", "4", "5", "6"};
 
                 // Step 1 of trajectory (Directly above the manipulable object)
-                joint_msg.position = {-1.5933, -0.8909, 0.8583, 1.600, 2.7448, -0.0774};
+                joint_msg.position = {-1.5933, -0.8909, 0.8583, 1.600, 1.57, -0.0774};
                 joint_cmd_pub->publish(joint_msg);
                 std::this_thread::sleep_for(std::chrono::seconds(2)); // Give arm time to move
 
@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
                         std::this_thread::sleep_for(std::chrono::seconds(1));
 
                         // Step 1 of trajectory (drop down to object)
-                        joint_msg.position = {-1.5933, -0.8909, 0.8583 - 0.15, 1.600, 2.7448, -0.0774};
+                        joint_msg.position = {-1.5933, -0.8909, 0.8583 - 0.15, 1.600, 1.57, -0.0774};
                         joint_cmd_pub->publish(joint_msg);
                         std::this_thread::sleep_for(std::chrono::seconds(2)); // Give arm time to move
 
@@ -170,12 +170,12 @@ int main(int argc, char** argv) {
                         std::this_thread::sleep_for(std::chrono::seconds(1));
 
                         // Step 2 of trajectory
-                        joint_msg.position = {-1.5933, -0.58519, -0.23257, 1.6061, 2.7448, -0.0774};
+                        joint_msg.position = {-1.5933, -0.58519, -0.23257, 1.6061, 1.57, -0.0774};
                         joint_cmd_pub->publish(joint_msg);
                         std::this_thread::sleep_for(std::chrono::seconds(2));
 
                         // Step 3 of trajectory 
-                        joint_msg.position = {-0.4208, -0.5222, -0.5366, 0.8286, 2.7448, -0.0774};
+                        joint_msg.position = {-0.4208, -0.5222, -0.5366, 0.8286, 1.57, -0.0774};
                         joint_cmd_pub->publish(joint_msg);
                         std::this_thread::sleep_for(std::chrono::seconds(2));
 
@@ -191,7 +191,7 @@ int main(int argc, char** argv) {
                 }
                 else {
                     for (int i = -3; i >= 3; i++) {
-                        joint_msg.position = {-1.5933, -0.8909, 0.8583, 1.600 + 0.15*i, 2.7448 + 0.15*i, -0.0774};
+                        joint_msg.position = {-1.5933, -0.8909, 0.8583, 1.600 + 0.15*i, 1.57 + 0.15*i, -0.0774};
                         joint_cmd_pub->publish(joint_msg);
                         std::this_thread::sleep_for(std::chrono::seconds(2)); // Give arm time to move
                         manipulable_object_name = yoloDetector.getObjectName(CameraSource::WRIST,true);
@@ -263,11 +263,13 @@ int main(int argc, char** argv) {
                     if (rotate_goal) {
                         std::string detected_item = yoloDetector.getObjectName(CameraSource::OAKD, false);
                         if (!detected_item.empty()) {
-                            float confidence = yoloDetector.getConfidence();
-                            if (confidence > 0.3) {
-                                RCLCPP_INFO(node->get_logger(), "Successfully Detected Something. Returning to Detect Object State with Current Angle.");
-                                current_state = RobotState::DETECT_OBJECT;
-                                break;
+                            if (valid_objects.count(detected_item)) {
+                                float confidence = yoloDetector.getConfidence();
+                                if (confidence > 0.3) {
+                                    RCLCPP_INFO(node->get_logger(), "Successfully Detected %s. Returning to Detect Object State with Current Angle.", detected_item.c_str());
+                                    current_state = RobotState::DETECT_OBJECT;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -306,7 +308,7 @@ int main(int argc, char** argv) {
                         double bin_y = tag_pose.position.y;
                         double bin_z = tag_pose.position.z;
                         // TODO: figure out angle orientation (reference frame orientation?)
-                        joint_msg.position = {bin_x, bin_y, bin_z, 1.600, 2.7448, -0.0774};
+                        joint_msg.position = {0, 0.5, -0.5366, 0.826, 1.57, -0.0774};
                         joint_cmd_pub->publish(joint_msg);
                         current_state = RobotState::RETURN_TO_START;
                     }
