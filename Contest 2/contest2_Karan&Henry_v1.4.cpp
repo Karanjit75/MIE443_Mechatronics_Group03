@@ -315,7 +315,7 @@ int main(int argc, char** argv)
                 if (!success) {
                     RCLCPP_ERROR(node->get_logger(), "Failed to pick up object using IK.");
                     //state = ContestState::Failed;
-                    break;
+                    //break;
                 }
 
                 current_box_index = 0;
