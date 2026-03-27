@@ -272,7 +272,7 @@ int main(int argc, char** argv) {
             case RobotState::PICK_MANIPULABLE_OBJECT: {
                 RCLCPP_INFO(node->get_logger(), "Executing pickup sequence...");
                     // Open gripper
-                publishJointCommand(joint_cmd_pub, {-1.7933, -0.8909, 0.8583, 1.600, 1.57, 0.7});
+                publishJointCommand(joint_cmd_pub, {-1.7933, -0.8909, 0.8583, 1.600, 1.57, -0.0774});
                 std::this_thread::sleep_for(2s);
                     // Step 1 of trajectory (drop down to object)
                 publishJointCommand(joint_cmd_pub, {-1.7933, -0.8909, 0.8583, 1.6, 1.57, 0.7});
