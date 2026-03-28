@@ -52,7 +52,7 @@ static bool tryPanningScan(Navigation& navigation, const std::vector<double>& ba
     YoloInterface& yoloDetector, const std::set<std::string>& valid_objects,
     std::string& detected_item, float& confidence)
 {
-    std::vector<double> pan_offsets = {-M_PI / 12.0, M_PI / 12.0, -M_PI / 6.0, M_PI / 6.0};
+    std::vector<double> pan_offsets = {0.0, -M_PI / 6.0, M_PI / 6.0, -M_PI / 3.0, M_PI / 3.0, -M_PI / 2.0, M_PI / 2.0};
     for (double off : pan_offsets) {
         bool ok = navigation.moveToGoal(base_goal[0], base_goal[1], base_goal[2] + off);
         if (!ok) {
@@ -383,7 +383,9 @@ int main(int argc, char** argv) {
             }
 
             case RobotState::ROTATE_SLIGHTLY: {
-                if (rotate_step_count >= 6) {
+                std::vector<double> rotate_offsets = {0, -M_PI/6, M_PI/6, -M_PI/3, M_PI/3, -M_PI/2, M_PI/2};
+
+                if (rotate_step_count >= static_cast<int>(rotate_offsets.size())) {
                     RCLCPP_WARN(node->get_logger(), "No valid detection at location %d, skipping.", current_target_index + 1);
                     current_target_index++;
                     current_state = RobotState::NAVIGATE_TO_SCENE;
@@ -393,7 +395,7 @@ int main(int argc, char** argv) {
                 double goal_x = boxes.coords[current_target_index][0];
                 double goal_y = boxes.coords[current_target_index][1];
                 double base_phi = boxes.coords[current_target_index][2];
-                double goal_phi = base_phi + rotate_step_count * (M_PI / 12.0);
+                double goal_phi = base_phi + rotate_offsets[rotate_step_count];
 
                 bool reached_goal = navigation.moveToGoal(goal_x, goal_y, goal_phi);
 
@@ -485,16 +487,16 @@ int main(int argc, char** argv) {
                 publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.8583, joint4_drop, 1.57, 0.5});
                 std::this_thread::sleep_for(2s);
 
-                publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.93, 0.95, 1.57, 0.5});
+                publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.93, 0.95, 1.57, 1.0});
                 std::this_thread::sleep_for(2s);
 
-                publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.93, 0.95, 1.57, 1.0});
+                publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.93, 0.95, 1.57, 0});
                 std::this_thread::sleep_for(1s);
 
-                publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.8583, joint4_drop, 1.57, 1.0});
+                publishJointCommand(joint_cmd_pub, {-1.5933 + joint1_adjust, -0.8909, 0.8583, joint4_drop, 1.57, -0.03});
                 std::this_thread::sleep_for(2s);
 
-                publishJointCommand(joint_cmd_pub, {-1.5933, -0.8909, 0.8583, joint4_retract, 1.57, 1.0});
+                publishJointCommand(joint_cmd_pub, {0, -0.8909, 0.8583, joint4_retract, 1.57, -0.03});
                 std::this_thread::sleep_for(2s);
 
                 current_state = RobotState::RETURN_TO_START;
